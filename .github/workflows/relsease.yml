@@ -6,6 +6,9 @@ on:
     tags:
       - "v*" # 推送 v0.1.0 这类标签时触发
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
