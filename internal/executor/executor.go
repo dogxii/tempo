@@ -139,7 +139,33 @@ func (e *Executor) executeScript(ctx context.Context, scriptType models.ScriptTy
 	case models.ScriptTypePython:
 		cmd = exec.CommandContext(ctx, "python3", scriptPath)
 	case models.ScriptTypeNodeJS:
-		cmd = exec.CommandContext(ctx, "node", scriptPath)
+		// Try to locate a node executable in PATH or common install locations.
+		nodePath, lookErr := exec.LookPath("node")
+		if lookErr != nil {
+			// Fallback: try "nodejs"
+			nodePath, lookErr = exec.LookPath("nodejs")
+		}
+		if lookErr != nil {
+			// Fallback: check some common absolute installation paths (macOS/Homebrew, Linux common paths)
+			tryPaths := []string{
+				"/opt/homebrew/bin/node",
+				"/usr/local/bin/node",
+				"/usr/bin/node",
+				"/bin/node",
+			}
+			for _, p := range tryPaths {
+				if _, statErr := os.Stat(p); statErr == nil {
+					nodePath = p
+					lookErr = nil
+					break
+				}
+			}
+		}
+		if lookErr != nil || nodePath == "" {
+			// Provide a clearer error to help diagnose environment issues (e.g. PATH differences when launched from GUI)
+			return "", fmt.Errorf("node executable not found in PATH; please ensure Node.js is installed and available in the environment PATH (tried: node, nodejs, common install locations)")
+		}
+		cmd = exec.CommandContext(ctx, nodePath, scriptPath)
 	case models.ScriptTypeShell:
 		cmd = exec.CommandContext(ctx, "bash", scriptPath)
 	default:
