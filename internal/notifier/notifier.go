@@ -2,10 +2,15 @@ package notifier
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"tempo/internal/models"
 	"time"
@@ -114,7 +119,9 @@ func (n *Notifier) sendWeChat(config *models.NotifierConfig, taskLog *models.Tas
 	return n.sendHTTPRequest(webhook, message)
 }
 
-// sendLark 发送飞书通知
+// sendLark 发送飞书通知（支持可选签名校验）
+// 如果通知配置里包含 "secret"，则会按照飞书签名方式计算 sign，并将 timestamp 和 sign 作为 query 参数附加到 webhook URL 上。
+// 签名算法：将 timestamp + "\n" + secret 作为签名密钥（key），对空消息计算 HMAC-SHA256，然后对结果进行 Base64 编码。
 func (n *Notifier) sendLark(config *models.NotifierConfig, taskLog *models.TaskLog) error {
 	webhook, ok := config.Config["webhook"].(string)
 	if !ok || webhook == "" {
@@ -136,7 +143,34 @@ func (n *Notifier) sendLark(config *models.NotifierConfig, taskLog *models.TaskL
 		},
 	}
 
-	return n.sendHTTPRequest(webhook, message)
+	// 检查是否配置了 secret（用于启用飞书签名校验）
+	secret, _ := config.Config["secret"].(string)
+	webhookToUse := webhook
+
+	if secret != "" {
+		// 生成 timestamp 和 sign
+		timestamp := time.Now().Unix()
+		// 按照示例，将 timestamp + "\n" + secret 作为签名密钥
+		stringToSign := fmt.Sprintf("%d\n%s", timestamp, secret)
+
+		// 使用 stringToSign 作为 key，对空消息计算 HMAC-SHA256
+		h := hmac.New(sha256.New, []byte(stringToSign))
+		_, _ = h.Write([]byte{})
+		signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+		// 将 timestamp 和 sign 以 query 参数形式附加到 webhook URL
+		u, err := url.Parse(webhook)
+		if err != nil {
+			return fmt.Errorf("invalid webhook URL: %w", err)
+		}
+		q := u.Query()
+		q.Set("timestamp", strconv.FormatInt(timestamp, 10))
+		q.Set("sign", signature)
+		u.RawQuery = q.Encode()
+		webhookToUse = u.String()
+	}
+
+	return n.sendHTTPRequest(webhookToUse, message)
 }
 
 // sendWebhook 发送自定义 Webhook 通知
