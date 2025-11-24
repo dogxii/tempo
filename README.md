@@ -1,15 +1,25 @@
+<img src="./build/appicon.png" width="140" height="140" alt="Tempo" align="right" />
+
+<div align="center">
+
 # Tempo - Alpha
 
-<div align="left">
+_一个类青龙面板的跨平台定时任务管理应用，支持 Python、Node.js、Shell 脚本的定时执行和通知推送._
+
+</div>
+
+<div align="center" style="margin-top:8px">
   <img src="https://img.shields.io/badge/Go-1.23-00ADD8?style=flat&logo=go" alt="Go">
   <img src="https://img.shields.io/badge/Wails-v2.11-DF5B46?style=flat" alt="Wails">
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react" alt="React">
   <img src="https://img.shields.io/badge/TailwindCSS-3-38B2AC?style=flat&logo=tailwind-css" alt="TailwindCSS">
 </div>
 
-一个类青龙面板的跨平台定时任务管理应用，支持 Python、Node.js、Shell 脚本的定时执行和通知推送。
+<p align="center" style="margin-top:12px">
+  <img src="./banner.png" alt="Tempo banner" />
+</p>
 
-![banner](./banner.png)
+---
 
 > [!WARNING]
 > 仍在开发中，当前版本并不完整...
