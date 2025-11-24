@@ -1,0 +1,132 @@
+# .github/workflows/release.yml
+name: Release Tempo
+
+on:
+  push:
+    tags:
+      - "v*" # 推送 v1.2.3 这类标签时触发
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+            ext: tar.gz
+          - os: windows-latest
+            target: windows-amd64
+            ext: zip
+          - os: macos-latest
+            target: macos-arm64
+            ext: tar.gz
+            # 如需 universal 或 amd64，可再加一项
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23" # README 要求 1.23+
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            build-essential
+
+      - name: Install WebView2 runtime (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          choco install microsoft-edge-webview2-runtime -y
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Frontend install & build
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+
+      # macOS 可选：覆盖最低版本（参考 Wails 文档）
+      - name: Build (Linux/macOS)
+        if: startsWith(matrix.os, 'ubuntu') || startsWith(matrix.os, 'macos')
+        env:
+          CGO_CFLAGS: -mmacosx-version-min=10.15.0
+          CGO_LDFLAGS: -mmacosx-version-min=10.15.0
+        run: |
+          $(go env GOPATH)/bin/wails build -clean -trimpath -v 2
+
+      - name: Build (Windows, embed WebView2)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          $env:Path += ";$($(go env GOPATH))\bin"
+          wails build -clean -trimpath -v 2 -webview2 embed
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          APP_NAME="tempo"
+          OUT_DIR="dist/${{ matrix.target }}"
+          mkdir -p "$OUT_DIR"
+
+          # 根据平台拷贝产物
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            cp build/bin/$APP_NAME "$OUT_DIR/"
+            tar -czf "dist/${APP_NAME}-${{ matrix.target }}.${{ matrix.ext }}" -C "$OUT_DIR" .
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            # Wails 会生成 .app；同时也会有同名二进制
+            if [ -d "build/bin/$APP_NAME.app" ]; then
+              cp -R "build/bin/$APP_NAME.app" "$OUT_DIR/"
+            fi
+            if [ -f "build/bin/$APP_NAME" ]; then
+              cp "build/bin/$APP_NAME" "$OUT_DIR/"
+            fi
+            tar -czf "dist/${APP_NAME}-${{ matrix.target }}.${{ matrix.ext }}" -C "$OUT_DIR" .
+          else
+            powershell -Command " \
+              New-Item -ItemType Directory -Force -Path $OUT_DIR | Out-Null; \
+              Copy-Item build\\bin\\${APP_NAME}.exe $OUT_DIR\\; \
+              Compress-Archive -Path $OUT_DIR\\* -DestinationPath dist\\${APP_NAME}-${{ matrix.target }}.zip \
+            "
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tempo-${{ matrix.target }}
+          path: dist/*.${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/tempo-*.zip
+            dist/**/tempo-*.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
